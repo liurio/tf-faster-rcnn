@@ -47,12 +47,12 @@ class RoIDataLayer(object):
       horz_inds = np.where(horz)[0]
       vert_inds = np.where(vert)[0]
       inds = np.hstack((
-          np.random.permutation(horz_inds),
+          np.random.permutation(horz_inds),  # permutation与shuffle的区别是，前者不改变原数组
           np.random.permutation(vert_inds)))
       inds = np.reshape(inds, (-1, 2))
       row_perm = np.random.permutation(np.arange(inds.shape[0]))
       inds = np.reshape(inds[row_perm, :], (-1,))
-      self._perm = inds
+      self._perm = inds #把roidb的索引打乱，造成的shuffle，打乱的索引存储的地方
     else:
       self._perm = np.random.permutation(np.arange(len(self._roidb)))
     # Restore the random state
@@ -78,9 +78,9 @@ class RoIDataLayer(object):
     If cfg.TRAIN.USE_PREFETCH is True, then blobs will be computed in a
     separate process and made available through self._blob_queue.
     """
-    db_inds = self._get_next_minibatch_inds()
+    db_inds = self._get_next_minibatch_inds()  #得到一组新的batch的index
     minibatch_db = [self._roidb[i] for i in db_inds]
-    return get_minibatch(minibatch_db, self._num_classes)
+    return get_minibatch(minibatch_db, self._num_classes)  #根据新的 index，读取出图像
       
   def forward(self):
     """Get blobs and copy them into this layer's top blob vector."""

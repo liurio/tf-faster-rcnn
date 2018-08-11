@@ -142,6 +142,7 @@ class Network(object):
     with tf.variable_scope(name) as scope:
       batch_ids = tf.squeeze(tf.slice(rois, [0, 0], [-1, 1], name="batch_id"), [1])
       # Get the normalized coordinates of bounding boxes
+      # 得到归一化的坐标，（相对于原图的尺寸进行归一化）
       bottom_shape = tf.shape(bottom)
       height = (tf.to_float(bottom_shape[1]) - 1.) * np.float32(self._feat_stride[0])
       width = (tf.to_float(bottom_shape[2]) - 1.) * np.float32(self._feat_stride[0])
@@ -152,9 +153,15 @@ class Network(object):
       # Won't be back-propagated to rois anyway, but to save time
       bboxes = tf.stop_gradient(tf.concat([y1, x1, y2, x2], axis=1))
       pre_pool_size = cfg.POOLING_SIZE * 2
+      # 裁剪特征图，并resize成相同的尺寸，#进行ROI pool，之所以需要归一化框的坐标是因为tf接口的要求
+      # 变成14 x 14的大小
       crops = tf.image.crop_and_resize(bottom, bboxes, tf.to_int32(batch_ids), [pre_pool_size, pre_pool_size], name="crops")
-
+    #用2×2的滑动窗口进行最大池化操作，输出的尺度是7×7
     return slim.max_pool2d(crops, [2, 2], padding='SAME')
+
+    """
+      处理方法：直接将ROI区域对应的特征分割出来，并按照某一尺度(14*14)进行线性双插值resize，再使用max_pool2d池化将特征变为7*7
+    """
 
   def _dropout_layer(self, bottom, name, ratio=0.5):
     return tf.nn.dropout(bottom, ratio, name=name)
@@ -242,10 +249,13 @@ class Network(object):
     net_conv = self._image_to_head(is_training)
     with tf.variable_scope(self._scope, self._scope):
       # build the anchors for the image
+      # 生成anchors
       self._anchor_component()
       # region proposal network
+      # RPN网络
       rois = self._region_proposal(net_conv, is_training, initializer)
       # region of interest pooling
+      # ROI
       if cfg.POOLING_MODE == 'crop':
         pool5 = self._crop_pool_layer(net_conv, rois, "pool5")
       else:
@@ -254,6 +264,7 @@ class Network(object):
     fc7 = self._head_to_tail(pool5, is_training)
     with tf.variable_scope(self._scope, self._scope):
       # region classification
+      # 分类回归网络
       cls_prob, bbox_pred = self._region_classification(fc7, is_training, 
                                                         initializer, initializer_bbox)
 
@@ -278,7 +289,7 @@ class Network(object):
 
   def _add_losses(self, sigma_rpn=3.0):
     with tf.variable_scope('LOSS_' + self._tag) as scope:
-      # RPN, class loss
+      # RPN, class loss RPN分类损失
       rpn_cls_score = tf.reshape(self._predictions['rpn_cls_score_reshape'], [-1, 2])
       rpn_label = tf.reshape(self._anchor_targets['rpn_labels'], [-1])
       rpn_select = tf.where(tf.not_equal(rpn_label, -1))
@@ -311,7 +322,8 @@ class Network(object):
       self._losses['loss_box'] = loss_box
       self._losses['rpn_cross_entropy'] = rpn_cross_entropy
       self._losses['rpn_loss_box'] = rpn_loss_box
-
+      
+      # 包括四项损失，RPN的分类和回归，RCNN的分类和回归，分类都是用的softmax_cross_entropy,回归损失都是用的smooth_L1_
       loss = cross_entropy + loss_box + rpn_cross_entropy + rpn_loss_box
       regularization_loss = tf.add_n(tf.losses.get_regularization_losses(), 'regu')
       self._losses['total_loss'] = loss + regularization_loss
@@ -324,14 +336,18 @@ class Network(object):
     rpn = slim.conv2d(net_conv, cfg.RPN_CHANNELS, [3, 3], trainable=is_training, weights_initializer=initializer,
                         scope="rpn_conv/3x3")
     self._act_summaries.append(rpn)
+
+    # 一条线路，用于分类前景和背景
     rpn_cls_score = slim.conv2d(rpn, self._num_anchors * 2, [1, 1], trainable=is_training,
                                 weights_initializer=initializer,
                                 padding='VALID', activation_fn=None, scope='rpn_cls_score')
     # change it so that the score has 2 as its channel size
     rpn_cls_score_reshape = self._reshape_layer(rpn_cls_score, 2, 'rpn_cls_score_reshape')
-    rpn_cls_prob_reshape = self._softmax_layer(rpn_cls_score_reshape, "rpn_cls_prob_reshape")
+    rpn_cls_prob_reshape = self._softmax_layer(rpn_cls_score_reshape, "rpn_cls_prob_reshape") # 利用softmax对所有的anchor进行分类，选出前景
     rpn_cls_pred = tf.argmax(tf.reshape(rpn_cls_score_reshape, [-1, 2]), axis=1, name="rpn_cls_pred")
-    rpn_cls_prob = self._reshape_layer(rpn_cls_prob_reshape, self._num_anchors * 2, "rpn_cls_prob")
+    rpn_cls_prob = self._reshape_layer(rpn_cls_prob_reshape, self._num_anchors * 2, "rpn_cls_prob") # 得到分类后的结果
+
+    # 另一条线路，根据生成后的前景anchor，进行bbox 回归 
     rpn_bbox_pred = slim.conv2d(rpn, self._num_anchors * 4, [1, 1], trainable=is_training,
                                 weights_initializer=initializer,
                                 padding='VALID', activation_fn=None, scope='rpn_bbox_pred')
@@ -370,10 +386,10 @@ class Network(object):
                                      trainable=is_training,
                                      activation_fn=None, scope='bbox_pred')
 
-    self._predictions["cls_score"] = cls_score
-    self._predictions["cls_pred"] = cls_pred
-    self._predictions["cls_prob"] = cls_prob
-    self._predictions["bbox_pred"] = bbox_pred
+      self._predictions["cls_score"] = cls_score
+      self._predictions["cls_pred"] = cls_pred
+      self._predictions["cls_prob"] = cls_prob
+      self._predictions["bbox_pred"] = bbox_pred
 
     return cls_prob, bbox_pred
 
@@ -411,7 +427,8 @@ class Network(object):
       biases_regularizer = weights_regularizer
     else:
       biases_regularizer = tf.no_regularizer
-
+    
+    # 构建网络 包括RPN、分类回归网络等
     # list as many types of layers as possible, even if they are not used now
     with arg_scope([slim.conv2d, slim.conv2d_in_plane, \
                     slim.conv2d_transpose, slim.separable_conv2d, slim.fully_connected], 

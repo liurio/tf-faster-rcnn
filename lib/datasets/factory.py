@@ -16,7 +16,11 @@ from datasets.coco import coco
 
 import numpy as np
 
+"""
+  利用lamdba表达式像一个工厂一样自定义自己所需要的数据库类，
+"""
 # Set up voc_<year>_<split> 
+#  以voc数据库为例，按照imdb的命名方式，利用pascal_vol()函数生成不同的imdb.
 for year in ['2007', '2012']:
   for split in ['train', 'val', 'trainval', 'test']:
     name = 'voc_{}_{}'.format(year, split)

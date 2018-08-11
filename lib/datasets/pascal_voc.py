@@ -39,11 +39,16 @@ class pascal_voc(imdb):
                      'cow', 'diningtable', 'dog', 'horse',
                      'motorbike', 'person', 'pottedplant',
                      'sheep', 'sofa', 'train', 'tvmonitor')
+
+    # _class_to_ind存的是{'__background__':0,'aeroplane':1,.....}
     self._class_to_ind = dict(list(zip(self.classes, list(range(self.num_classes)))))
-    self._image_ext = '.jpg'
-    self._image_index = self._load_image_set_index()
+    self._image_ext = '.jpg' #图片格式
+    # 一个列表，包含对应数据集图像的名称信息，如[000001]
+    self._image_index = self._load_image_set_index() 
     # Default to roidb handler
+    # 得到roi的图片信息，然后重载imdb中
     self._roidb_handler = self.gt_roidb
+    # 生成一个而随机的uuid，即对于分布式数据，每个数据都有自己对应的唯一的标识符,uuid4是根据随机数生成机制，前面随机数种子已经定义了np.random.seed(3)
     self._salt = str(uuid.uuid4())
     self._comp_id = 'comp4'
 
@@ -59,12 +64,14 @@ class pascal_voc(imdb):
     assert os.path.exists(self._data_path), \
       'Path does not exist: {}'.format(self._data_path)
 
+  # 重载了imdb.py中定义，返回图片所在的全路径
   def image_path_at(self, i):
     """
     Return the absolute path to image i in the image sequence.
     """
     return self.image_path_from_index(self._image_index[i])
 
+  #  image_path_at 中调用，组合图片所在的全路径
   def image_path_from_index(self, index):
     """
     Construct an image path from the image's "index" identifier.
@@ -75,6 +82,7 @@ class pascal_voc(imdb):
       'Path does not exist: {}'.format(image_path)
     return image_path
 
+  # 获取图片的索引
   def _load_image_set_index(self):
     """
     Load the indexes listed in this dataset's image set file.
@@ -86,7 +94,9 @@ class pascal_voc(imdb):
     assert os.path.exists(image_set_file), \
       'Path does not exist: {}'.format(image_set_file)
     with open(image_set_file) as f:
+      # strip()删除字符串两边的空格，或者\r\t\n等字符
       image_index = [x.strip() for x in f.readlines()]
+      # 返回index的一个列表，包含该数据集图片名称信息，
     return image_index
 
   def _get_default_path(self):
@@ -98,28 +108,39 @@ class pascal_voc(imdb):
   def gt_roidb(self):
     """
     Return the database of ground-truth regions of interest.
-
+    得到roi组成的database
     This function loads/saves from/to a cache file to speed up future calls.
     """
+    # 加载cache_file至roidb
     cache_file = os.path.join(self.cache_path, self.name + '_gt_roidb.pkl')
     if os.path.exists(cache_file):
       with open(cache_file, 'rb') as fid:
         try:
-          roidb = pickle.load(fid)
+          roidb = pickle.load(fid) # #b=cPickle.load(a).加载a至b
         except:
           roidb = pickle.load(fid, encoding='bytes')
       print('{} gt roidb loaded from {}'.format(self.name, cache_file))
       return roidb
 
+    # _load_pascal_annotation(index)返回的是图片信息dict，然后按照顺序存进一个list，对应图片信息索引
     gt_roidb = [self._load_pascal_annotation(index)
                 for index in self.image_index]
+
+    # 将gt_roidb存入临时文件cache_file
     with open(cache_file, 'wb') as fid:
-      pickle.dump(gt_roidb, fid, pickle.HIGHEST_PROTOCOL)
+      # 先把gt_roidb存入fid，一种高效的加载方式pickle.HIGHEST_PROTOCOL，可以节省空间80%
+      pickle.dump(gt_roidb, fid, pickle.HIGHEST_PROTOCOL) 
     print('wrote gt roidb to {}'.format(cache_file))
 
     return gt_roidb
 
   def rpn_roidb(self):
+    """
+        该方法首先 --->  1、调用gt_roidb()，生成gt_roidb
+                        2、调用_load_rpn_roidb(gt_roidb)载入rpn_roidb，
+                                而具体的_load_rpn_roidb()是调用其父类imdb的create_roidb_from_box_list()中获取每张图片的boxes
+                        3、调用父类imdb的merge_roidbs()方法将gt_roidb和rpn_roidb合并为一个roidb
+    """
     if int(self._year) == 2007 or self._image_set != 'test':
       gt_roidb = self.gt_roidb()
       rpn_roidb = self._load_rpn_roidb(gt_roidb)
@@ -142,12 +163,18 @@ class pascal_voc(imdb):
     """
     Load image and bounding boxes info from XML file in the PASCAL VOC
     format.
+    该函数的作用 就是从数据库的xml文件中加载图像和bbox等信息，包括bboxes坐标，类别，overlap矩阵，bbox面积等
     """
     filename = os.path.join(self._data_path, 'Annotations', index + '.xml')
+
+    # 用xml.etree.ElementTree打开XML文件
     tree = ET.parse(filename)
     objs = tree.findall('object')
     if not self.config['use_diff']:
       # Exclude the samples labeled as difficult
+
+      #xml文件中该object有一个属性difficult，1表示目标难以区分，0表示容易识别、
+            #该操作就是要吧有difficult的目标给剔除
       non_diff_objs = [
         obj for obj in objs if int(obj.find('difficult').text) == 0]
       # if len(non_diff_objs) != len(objs):
@@ -155,7 +182,7 @@ class pascal_voc(imdb):
       #         len(objs) - len(non_diff_objs))
       objs = non_diff_objs
     num_objs = len(objs)
-
+    #初始化boxes，先建立一个shape为(num_objs,4)的全0矩阵，num_objs为图片中的物体的个数
     boxes = np.zeros((num_objs, 4), dtype=np.uint16)
     gt_classes = np.zeros((num_objs), dtype=np.int32)
     overlaps = np.zeros((num_objs, self.num_classes), dtype=np.float32)
@@ -175,9 +202,9 @@ class pascal_voc(imdb):
       gt_classes[ix] = cls
       overlaps[ix, cls] = 1.0
       seg_areas[ix] = (x2 - x1 + 1) * (y2 - y1 + 1)
-
+    # 将overlap稀疏矩阵压缩
     overlaps = scipy.sparse.csr_matrix(overlaps)
-
+    # 类型总结，以下key的类型：[array,array,scipy.sparse.csr.csr_matrix,bool,array]
     return {'boxes': boxes,
             'gt_classes': gt_classes,
             'gt_overlaps': overlaps,

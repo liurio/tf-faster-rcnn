@@ -63,11 +63,14 @@ def _get_image_blob(roidb, scale_inds):
     if roidb[i]['flipped']:
       im = im[:, ::-1, :]
     target_size = cfg.TRAIN.SCALES[scale_inds[i]]
+
+    # #求取图像的缩放比例，然后将图像resize
     im, im_scale = prep_im_for_blob(im, cfg.PIXEL_MEANS, target_size,
                     cfg.TRAIN.MAX_SIZE)
     im_scales.append(im_scale)
     processed_ims.append(im)
 
+  # 将图像的list转变为网络的输入，转成blob格式
   # Create a blob to hold the input images
   blob = im_list_to_blob(processed_ims)
 

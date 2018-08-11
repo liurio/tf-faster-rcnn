@@ -113,14 +113,17 @@ class SolverWrapper(object):
         print("It's likely that your checkpoint file has been compressed "
               "with SNAPPY.")
 
+  # 构造计算图
   def construct_graph(self, sess):
     with sess.graph.as_default():
       # Set the random seed for tensorflow
       tf.set_random_seed(cfg.RNG_SEED)
       # Build the main computation graph
+      # 开始进入网络构造阶段,然后该函数会调用_build_network()具体构造RPN网络，分类回归网络等
       layers = self.net.create_architecture('TRAIN', self.imdb.num_classes, tag='default',
                                             anchor_scales=cfg.ANCHOR_SCALES,
                                             anchor_ratios=cfg.ANCHOR_RATIOS)
+      # 当网络构建完成定义损失及优化器
       # Define the loss
       loss = layers['total_loss']
       # Set learning rate and momentum
@@ -244,9 +247,11 @@ class SolverWrapper(object):
     self.data_layer = RoIDataLayer(self.roidb, self.imdb.num_classes)
     self.data_layer_val = RoIDataLayer(self.valroidb, self.imdb.num_classes, random=True)
 
+    # 定义损失，优化器，梯度计算等
     # Construct the computation graph
     lr, train_op = self.construct_graph(sess)
 
+    # 初始化，重新存储snapshot
     # Find previous snapshots if there is any to restore from
     lsf, nfiles, sfiles = self.find_previous()
 
@@ -270,10 +275,11 @@ class SolverWrapper(object):
         # Add snapshot here before reducing the learning rate
         self.snapshot(sess, iter)
         rate *= cfg.TRAIN.GAMMA
-        sess.run(tf.assign(lr, rate))
+        sess.run(tf.assign(lr, rate)) #相当于赋值操作，把lr变为rate
         next_stepsize = stepsizes.pop()
 
       timer.tic()
+      # 用梯度下降法训练，一次获取一个batch
       # Get training data, one batch at a time
       blobs = self.data_layer.forward()
 
@@ -323,13 +329,26 @@ class SolverWrapper(object):
 
 def get_training_roidb(imdb):
   """Returns a roidb (Region of Interest database) for use in training."""
-  if cfg.TRAIN.USE_FLIPPED:
+  if cfg.TRAIN.USE_FLIPPED: # 表示是否对图片进行翻转，图片增强，为了扩充数据库，对图片进行翻转
     print('Appending horizontally-flipped training examples...')
     imdb.append_flipped_images()
     print('done')
 
   print('Preparing training data...')
+  # 为训练做准备，该函数主要是用来准备imdb的roidb，主要工作是给roidb中的字典添加一些属性，
   rdl_roidb.prepare_roidb(imdb)
+  # 得到imdb.roidb是list的形式，包含所有样本的信息，imdb.roidb[index]是每个样本的数据roidb[index]，dict 类型，key 与 value 分别对应数据为，
+  """
+  [1] - boxes，box 的位置数据，box_num×4 的 ndarray
+  hanshu[2] - flipped，是否图片翻转，True or False
+  [3] - gt_classes，图片内所有 boxes 的真实类别标注，box_num×1 的 ndarray
+  [4] - gt_overlaps，图片内所有 boxes 在不同类别对应的 score，box_num×classes_num 的 matrix
+  [5] - height，图片的高
+  [6] - width，图片的宽
+  [7] - image，图片路径
+  [8] - max_classes，每个 box 的最高 score 所对应的类别，box_num×1 的 ndarray
+  [9] - max_overlaps，每个 box 对所有类别的 score 最大值，box_num×1 的 ndarray
+  """
   print('done')
 
   return imdb.roidb
@@ -364,7 +383,7 @@ def train_net(network, imdb, roidb, valroidb, output_dir, tb_dir,
               pretrained_model=None,
               max_iters=40000):
   """Train a Faster R-CNN network."""
-  roidb = filter_roidb(roidb)
+  roidb = filter_roidb(roidb) # 去除没有用的rols
   valroidb = filter_roidb(valroidb)
 
   tfconfig = tf.ConfigProto(allow_soft_placement=True)

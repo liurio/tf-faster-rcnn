@@ -66,8 +66,9 @@ def combined_roidb(imdb_names):
   """
 
   def get_roidb(imdb_name):
-    imdb = get_imdb(imdb_name)
+    imdb = get_imdb(imdb_name)  # factory.py在工厂类中的get_imdb()
     print('Loaded dataset `{:s}` for training'.format(imdb.name))
+    # 读取imdb后，执行set_proposal_method函数，该函数把字符串转成表达式
     imdb.set_proposal_method(cfg.TRAIN.PROPOSAL_METHOD)
     print('Set proposal method: {:s}'.format(cfg.TRAIN.PROPOSAL_METHOD))
     roidb = get_training_roidb(imdb)
@@ -97,11 +98,14 @@ if __name__ == '__main__':
     cfg_from_list(args.set_cfgs)
 
   print('Using config:')
-  pprint.pprint(cfg)
+  pprint.pprint(cfg)  #cfg就是Faster-RCNN_TF/lib/fast_rcnn/config.py
+  # 这是网络参数的训练文件。
 
   np.random.seed(cfg.RNG_SEED)
 
   # train set
+  # 加载训练数据，主要有get_imdb()用来获取imdb，get_training_roidb(imdb)获取roidb
+  # roidb是属于imdb的，roidb并没有真正的读取数据，只是建立了一些相关信息，是dict
   imdb, roidb = combined_roidb(args.imdb_name)
   print('{:d} roidb entries'.format(len(roidb)))
 

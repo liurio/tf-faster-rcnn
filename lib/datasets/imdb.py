@@ -82,10 +82,10 @@ class imdb(object):
     return cache_path
 
   @property
-  def num_images(self):
+  def num_images(self):##数据库中图片的个数
     return len(self.image_index)
 
-  def image_path_at(self, i):
+  def image_path_at(self, i):##得到第index图片的地址，全路径
     raise NotImplementedError
 
   def default_roidb(self):
@@ -213,22 +213,30 @@ class imdb(object):
     return {'ar': ar, 'recalls': recalls, 'thresholds': thresholds,
             'gt_overlaps': gt_overlaps}
 
+  ## 从box_list中读取每张图像的boxes
   def create_roidb_from_box_list(self, box_list, gt_roidb):
     assert len(box_list) == self.num_images, \
       'Number of boxes must match number of ground-truth images'
     roidb = []
     for i in range(self.num_images):
-      boxes = box_list[i]
+      boxes = box_list[i] 
       num_boxes = boxes.shape[0]
+
+      # overlaps的shape的始终是 num_boxes x num_classes
       overlaps = np.zeros((num_boxes, self.num_classes), dtype=np.float32)
 
       if gt_roidb is not None and gt_roidb[i]['boxes'].size > 0:
         gt_boxes = gt_roidb[i]['boxes']
         gt_classes = gt_roidb[i]['gt_classes']
+
+        # 计算当前图像的rpn_file中记录 的boxes和gtboxes的IOU overlap，返回gt_overlaps
+        #shape 为num_boxes x num_gtboxes
         gt_overlaps = bbox_overlaps(boxes.astype(np.float),
                                     gt_boxes.astype(np.float))
-        argmaxes = gt_overlaps.argmax(axis=1)
-        maxes = gt_overlaps.max(axis=1)
+        argmaxes = gt_overlaps.argmax(axis=1) # 最大值的那个参数
+        maxes = gt_overlaps.max(axis=1) # 最大值
+
+        # 返回maxes>0 的位置信息
         I = np.where(maxes > 0)[0]
         overlaps[I, gt_classes[argmaxes[I]]] = maxes[I]
 
@@ -242,6 +250,7 @@ class imdb(object):
       })
     return roidb
 
+  # 类imdb的静态方法，将a，b连个roidb合并为一个roidb
   @staticmethod
   def merge_roidbs(a, b):
     assert len(a) == len(b)
